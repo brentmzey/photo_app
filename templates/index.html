@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image Upload</title>
+    <script src="https://unpkg.com/htmx.org@1.9.4"></script>
+</head>
+<body>
+    <h1>Upload Image</h1>
+    <form method="POST" enctype="multipart/form-data" hx-post="/" hx-target="#response">
+        <input type="text" name="nickname" placeholder="Nickname" required><br>
+        <input type="text" name="mime_type" placeholder="Mime Type (e.g., image/jpeg)" required><br>
+        <input type="file" name="image_data" accept="image/*" required><br>
+        <button type="submit">Upload</button>
+    </form>
+    <div id="response"></div>
+
+    <h1>View Image</h1>
+    <input type="text" id="image-nickname" placeholder="Enter nickname">
+    <button onclick="fetchImage()">Fetch Image</button>
+    <div id="image-container"></div>
+
+    <script>
+        function fetchImage() {
+            var nickname = document.getElementById("image-nickname").value;
+            fetch('/images/' + nickname) 
+                .then(response => response.json())
+                .then(images => {
+                    var imageContainer = document.getElementById("image-container");
+                    imageContainer.innerHTML = ""; // Clear previous images
+
+                    images.forEach(image => {
+                        var imageData = image.image_data;
+                        var mimeType = image.mime_type;
+                        var img = document.createElement('img');
+                        img.src = `data:${mimeType};base64,${imageData}`;
+                        imageContainer.appendChild(img);
+                    });
+                })
+                .catch(error => {
+                    document.getElementById("image-container").innerHTML = "Error fetching image";
+                });
+        }
+    </script>
+</body>
+</html>
