@@ -1,19 +1,59 @@
 import base64
 from flask import Flask, request, render_template, jsonify
 import psycopg2
-import binascii
+import sqlite3
+import os
 
 app = Flask(__name__)
 
 # Database configuration
+DB_TYPE = os.getenv("DB_TYPE", "postgres")  # "postgres" or "sqlite"
 DB_HOST = "localhost"
 DB_NAME = "photo_db"
 DB_USER = "postgres"  # Replace with your PostgreSQL username
 DB_PASS = "Bmz4795abbie!"  # Replace with your PostgreSQL password
+SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", "/tmp/photo.db")
 
 def get_db_connection():
-    conn = psycopg2.connect(host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASS)
+    if DB_TYPE == "postgres":
+        conn = psycopg2.connect(host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASS)
+    elif DB_TYPE == "sqlite":
+        conn = sqlite3.connect(SQLITE_DB_PATH)
+    else:
+        raise ValueError("Unsupported DB_TYPE specified")
     return conn
+
+def init_db():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    if DB_TYPE == "sqlite":
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS images (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                image_data BLOB NOT NULL,
+                nickname TEXT NOT NULL,
+                mime_type TEXT NOT NULL
+            )
+        """)
+    elif DB_TYPE == "postgres":
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS images (
+                id SERIAL PRIMARY KEY,
+                image_data BYTEA NOT NULL,
+                nickname TEXT NOT NULL,
+                mime_type TEXT NOT NULL
+            )
+        """)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+# Initialize the database
+init_db()
+
+# Log the SQLite path if SQLite is used
+if DB_TYPE == "sqlite":
+    print(f"SQLite database file is located at: {SQLITE_DB_PATH}")
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -22,12 +62,13 @@ def index():
         mime_type = request.form["mime_type"]
         image_data = request.files["image_data"].read()
 
-        # Convert image data to hex
-        hex_data = binascii.hexlify(image_data).decode('utf-8')
-
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("INSERT INTO images (image_data, nickname, mime_type) VALUES (%s, %s, %s)", (hex_data, nickname, mime_type))
+        if DB_TYPE == "postgres":
+            cur.execute("INSERT INTO images (image_data, nickname, mime_type) VALUES (%s, %s, %s)", (psycopg2.Binary(image_data), nickname, mime_type))
+        elif DB_TYPE == "sqlite":
+            cur.execute("INSERT INTO images (image_data, nickname, mime_type) VALUES (?, ?, ?)", (sqlite3.Binary(image_data), nickname, mime_type))
+        
         conn.commit()
         cur.close()
         conn.close()
@@ -39,7 +80,10 @@ def index():
 def get_image(nickname):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT image_data, mime_type FROM images WHERE nickname = %s", (nickname,))
+    if DB_TYPE == "postgres":
+        cur.execute("SELECT image_data, mime_type FROM images WHERE nickname = %s", (nickname,))
+    elif DB_TYPE == "sqlite":
+        cur.execute("SELECT image_data, mime_type FROM images WHERE nickname = ?", (nickname,))
     rows = cur.fetchall()
     cur.close()
     conn.close()
@@ -47,12 +91,9 @@ def get_image(nickname):
     if rows:
         images = []
         for row in rows:
-            hex_data, mime_type = row
+            image_data, mime_type = row
 
-            # Decode the hex data to bytes
-            image_data = binascii.unhexlify(hex_data)
-
-            # Encode the bytes to base64
+            # Encode the binary data to base64 for JSON serialization
             base64_encoded_data = base64.b64encode(image_data).decode('utf-8')
 
             images.append({'image_data': base64_encoded_data, 'mime_type': mime_type})

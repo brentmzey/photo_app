@@ -28,7 +28,7 @@ Ensure PostgreSQL is installed and running on your local machine. Normally, this
    If there's an existing database named `photo_db`, you can drop it using:
 
    ```bash
-   psql -U postgres -d treehouse_db -c "DROP DATABASE IF EXISTS photo_db"
+   psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS photo_db"
    ```
 
 2. **Create the Necessary Database:**
@@ -36,7 +36,7 @@ Ensure PostgreSQL is installed and running on your local machine. Normally, this
    To create a new database, run:
 
    ```bash
-   psql -U postgres -d trust_db -c "CREATE DATABASE photo_db WITH OWNER = postgres TEMPLATE template0 ENCODING = 'UTF8' LC_COLLATE = 'en_US.UTF-8' LC_CTYPE = 'en_US.UTF-8' CONNECTION LIMIT = -1;"
+   psql -U postgres -d postgres -c "CREATE DATABASE photo_db WITH OWNER = postgres TEMPLATE template0 ENCODING = 'UTF8' LC_COLLATE = 'en_US.UTF-8' LC_CTYPE = 'en_US.UTF-8' CONNECTION LIMIT = -1;"
    ```
 
 ### Install Dependencies
