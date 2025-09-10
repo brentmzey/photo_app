@@ -83,16 +83,18 @@ def index():
             conn = get_db_connection()
             cur = conn.cursor()
             if DB_TYPE == "postgres":
-                cur.execute("INSERT INTO images (image_data, nickname, mime_type) VALUES (%s, %s, %s)", (psycopg2.Binary(image_data), nickname, mime_type))
+                cur.execute("INSERT INTO images (image_data, nickname, mime_type) VALUES (%s, %s, %s)", 
+                            (psycopg2.Binary(image_data), nickname, mime_type))
             elif DB_TYPE == "sqlite":
-                cur.execute("INSERT INTO images (image_data, nickname, mime_type) VALUES (?, ?, ?)", (sqlite3.Binary(image_data), nickname, mime_type))
+                cur.execute("INSERT INTO images (image_data, nickname, mime_type) VALUES (?, ?, ?)", 
+                            (sqlite3.Binary(image_data), nickname, mime_type))
             
             conn.commit()
             logging.info(f"Image with nickname '{nickname}' uploaded successfully.")
-            return jsonify({"message": "Image uploaded successfully!"})
+            return f"<div class='success-message'>Image '{nickname}' uploaded successfully!</div>"
         except Exception as e:
             logging.error(f"Error during image upload: {e}")
-            return jsonify({"error": "Image upload failed", "details": str(e)}), 500
+            return f"<div class='error-message'>Image upload failed: {str(e)}</div>", 500
         finally:
             if cur:
                 cur.close()
