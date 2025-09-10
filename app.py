@@ -14,8 +14,8 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 DB_TYPE = os.getenv("DB_TYPE", "postgres")  # "postgres" or "sqlite"
 DB_HOST = "localhost"
 DB_NAME = "photo_db"
-DB_USER = "postgres"  # Replace with your PostgreSQL username
-DB_PASS = "Bmz4795abbie!"  # Replace with your PostgreSQL password
+DB_USER = "postgres"  # Replace with your PostgreSQL username, if necessary
+DB_PASS = os.getenv("PGPASSWORD", "<none>")  # Ideally should be a complete secret
 SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", "/tmp/photo.db")
 
 def get_db_connection():
