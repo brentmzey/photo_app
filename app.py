@@ -4,6 +4,8 @@ import psycopg2
 import sqlite3
 import os
 import logging
+import uuid
+import redis
 
 app = Flask(__name__)
 
@@ -17,6 +19,22 @@ DB_NAME = "photo_db"
 DB_USER = "postgres"  # Replace with your PostgreSQL username, if necessary
 DB_PASS = os.getenv("PGPASSWORD", "<none>")  # Ideally should be a complete secret
 SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", "/tmp/photo.db")
+
+# Redis configuration
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+REDIS_DB = int(os.getenv("REDIS_DB", 0))
+redis_client = None
+use_redis = False  # Flag indicating if Redis is available
+
+# Try to connect to Redis
+try:
+    redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
+    redis_client.ping()  # Test if Redis is reachable
+    use_redis = True
+    logging.info("Connected to Redis.")
+except redis.ConnectionError:
+    logging.warning("Redis is not reachable. The application will not use caching.")
 
 def get_db_connection():
     try:
@@ -39,7 +57,7 @@ def init_db():
         if DB_TYPE == "sqlite":
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS images (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id TEXT PRIMARY KEY,
                     image_data BLOB NOT NULL,
                     nickname TEXT NOT NULL,
                     mime_type TEXT NOT NULL
@@ -48,7 +66,7 @@ def init_db():
         elif DB_TYPE == "postgres":
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS images (
-                    id SERIAL PRIMARY KEY,
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     image_data BYTEA NOT NULL,
                     nickname TEXT NOT NULL,
                     mime_type TEXT NOT NULL
@@ -79,15 +97,16 @@ def index():
             nickname = request.form["nickname"]
             mime_type = request.form["mime_type"]
             image_data = request.files["image_data"].read()
+            image_id = str(uuid.uuid4())  # Generate a new UUID for the image
 
             conn = get_db_connection()
             cur = conn.cursor()
             if DB_TYPE == "postgres":
-                cur.execute("INSERT INTO images (image_data, nickname, mime_type) VALUES (%s, %s, %s)", 
-                            (psycopg2.Binary(image_data), nickname, mime_type))
+                cur.execute("INSERT INTO images (id, image_data, nickname, mime_type) VALUES (%s, %s, %s, %s)", 
+                            (image_id, psycopg2.Binary(image_data), nickname, mime_type))
             elif DB_TYPE == "sqlite":
-                cur.execute("INSERT INTO images (image_data, nickname, mime_type) VALUES (?, ?, ?)", 
-                            (sqlite3.Binary(image_data), nickname, mime_type))
+                cur.execute("INSERT INTO images (id, image_data, nickname, mime_type) VALUES (?, ?, ?, ?)",
+                            (image_id, sqlite3.Binary(image_data), nickname, mime_type))
             
             conn.commit()
             logging.info(f"Image with nickname '{nickname}' uploaded successfully.")
@@ -109,7 +128,22 @@ def dbtype():
 
 @app.route("/images/<nickname>")
 def get_image(nickname):
+    conn = None
+    cur = None
     try:
+        # Try to fetch image data from Redis cache if Redis is available
+        if use_redis and redis_client:
+            cached_image = redis_client.get(nickname)
+            if cached_image:
+                logging.info(f"Cache hit for nickname '{nickname}'.")
+                image_data, mime_type = cached_image.split(b'|')
+                return jsonify([{
+                    'image_data': base64.b64encode(image_data).decode('utf-8'),
+                    'mime_type': mime_type.decode('utf-8')
+                }])
+
+        # If cache miss or Redis is not used, fetch from database
+        logging.info(f"Cache miss for nickname '{nickname}' or caching is disabled. Fetching from database.")
         conn = get_db_connection()
         cur = conn.cursor()
         if DB_TYPE == "postgres":
@@ -128,6 +162,10 @@ def get_image(nickname):
 
         if images:
             logging.info(f"Fetched images for nickname '{nickname}'.")
+            # Cache the first image found if Redis is available
+            if use_redis and redis_client:
+                to_cache = b'|'.join([image_data, mime_type.encode('utf-8')])
+                redis_client.set(nickname, to_cache)
         else:
             logging.info(f"No images found for nickname '{nickname}'.")
 
