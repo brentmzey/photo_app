@@ -66,7 +66,7 @@ def init_db():
         elif DB_TYPE == "postgres":
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS images (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    image_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     image_data BYTEA NOT NULL,
                     nickname TEXT NOT NULL,
                     mime_type TEXT NOT NULL
@@ -102,11 +102,15 @@ def index():
             conn = get_db_connection()
             cur = conn.cursor()
             if DB_TYPE == "postgres":
-                cur.execute("INSERT INTO images (id, image_data, nickname, mime_type) VALUES (%s, %s, %s, %s)", 
-                            (image_id, psycopg2.Binary(image_data), nickname, mime_type))
+                cur.execute(
+                    "INSERT INTO images (image_id, image_data, nickname, mime_type) VALUES (%s, %s, %s, %s)",
+                    (image_id, psycopg2.Binary(image_data), nickname, mime_type)
+                )
             elif DB_TYPE == "sqlite":
-                cur.execute("INSERT INTO images (id, image_data, nickname, mime_type) VALUES (?, ?, ?, ?)",
-                            (image_id, sqlite3.Binary(image_data), nickname, mime_type))
+                cur.execute(
+                    "INSERT INTO images (id, image_data, nickname, mime_type) VALUES (?, ?, ?, ?)",
+                    (image_id, sqlite3.Binary(image_data), nickname, mime_type)
+                )
             
             conn.commit()
             logging.info(f"Image with nickname '{nickname}' uploaded successfully.")
