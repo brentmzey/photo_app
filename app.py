@@ -6,6 +6,7 @@ import os
 import logging
 import uuid
 import redis
+import mimetypes
 
 app = Flask(__name__)
 
@@ -90,13 +91,31 @@ init_db()
 if DB_TYPE == "sqlite":
     logging.info(f"SQLite database file is located at: {SQLITE_DB_PATH}")
 
+def sniff_mime_type(file_storage):
+    # Try to get MIME type from file object
+    mime_type = file_storage.mimetype
+    if mime_type and mime_type != 'application/octet-stream':
+        return mime_type
+    # Fallback: use imghdr and mimetypes
+    file_bytes = file_storage.read()
+    file_storage.seek(0)
+    ext = imghdr.what(None, h=file_bytes)
+    if ext:
+        guessed = mimetypes.types_map.get(f".{ext}", None)
+        if guessed:
+            return guessed
+    return "application/octet-stream"
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
         try:
             nickname = request.form["nickname"]
-            mime_type = request.form["mime_type"]
-            image_data = request.files["image_data"].read()
+            image_file = request.files["image_data"]
+            image_data = image_file.read()
+            image_file.seek(0)
+            # Sniff MIME type automatically
+            mime_type = sniff_mime_type(image_file)
             image_id = str(uuid.uuid4())  # Generate a new UUID for the image
 
             conn = get_db_connection()
@@ -114,14 +133,14 @@ def index():
             
             conn.commit()
             logging.info(f"Image with nickname '{nickname}' uploaded successfully.")
-            return f"<div class='success-message'>Image '{nickname}' uploaded successfully!</div>"
+            return f"<div class='success-message'>Image '{nickname}' uploaded successfully! (MIME: {mime_type})</div>"
         except Exception as e:
             logging.error(f"Error during image upload: {e}")
             return f"<div class='error-message'>Image upload failed: {str(e)}</div>", 500
         finally:
-            if cur:
+            if 'cur' in locals() and cur:
                 cur.close()
-            if conn:
+            if 'conn' in locals() and conn:
                 conn.close()
 
     return render_template("index.html")
@@ -129,6 +148,15 @@ def index():
 @app.route("/dbtype")
 def dbtype():
     return jsonify({"db_type": DB_TYPE})
+
+@app.route("/sniff-mime", methods=["POST"])
+def sniff_mime():
+    try:
+        image_file = request.files["image_data"]
+        mime_type = sniff_mime_type(image_file)
+        return jsonify({"mime_type": mime_type})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 @app.route("/images/<nickname>")
 def get_image(nickname):
