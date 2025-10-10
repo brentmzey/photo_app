@@ -6,7 +6,24 @@ import os
 import logging
 import uuid
 import redis
-import mimetypes
+import pika
+
+# RabbitMQ configuration
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
+RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", 5672))
+RABBITMQ_EXCHANGE = "photo-app"
+RABBITMQ_ROUTING_KEY = "image.uploaded"
+
+def send_message_to_rabbitmq(message):
+    try:
+        connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST, port=RABBITMQ_PORT))
+        channel = connection.channel()
+        channel.exchange_declare(exchange=RABBITMQ_EXCHANGE, exchange_type='direct')
+        channel.basic_publish(exchange=RABBITMQ_EXCHANGE, routing_key=RABBITMQ_ROUTING_KEY, body=message)
+        connection.close()
+        logging.info(f"Sent message to RabbitMQ: {message}")
+    except Exception as e:
+        logging.error(f"Error sending message to RabbitMQ: {e}")
 
 app = Flask(__name__)
 
@@ -65,9 +82,10 @@ def init_db():
                 )
             """)
         elif DB_TYPE == "postgres":
+            # For Postgres, use UUID type for the id
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS images (
-                    image_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    id UUID PRIMARY KEY,
                     image_data BYTEA NOT NULL,
                     nickname TEXT NOT NULL,
                     mime_type TEXT NOT NULL
@@ -106,42 +124,33 @@ def sniff_mime_type(file_storage):
             return guessed
     return "application/octet-stream"
 
+import json
+from messaging import send_message, IMAGE_PROCESSING_EXCHANGE, IMAGE_PROCESSING_QUEUE
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
         try:
+            request_id = str(uuid.uuid4())
             nickname = request.form["nickname"]
             image_file = request.files["image_data"]
             image_data = image_file.read()
             image_file.seek(0)
-            # Sniff MIME type automatically
             mime_type = sniff_mime_type(image_file)
-            image_id = str(uuid.uuid4())  # Generate a new UUID for the image
 
-            conn = get_db_connection()
-            cur = conn.cursor()
-            if DB_TYPE == "postgres":
-                cur.execute(
-                    "INSERT INTO images (image_id, image_data, nickname, mime_type) VALUES (%s, %s, %s, %s)",
-                    (image_id, psycopg2.Binary(image_data), nickname, mime_type)
-                )
-            elif DB_TYPE == "sqlite":
-                cur.execute(
-                    "INSERT INTO images (id, image_data, nickname, mime_type) VALUES (?, ?, ?, ?)",
-                    (image_id, sqlite3.Binary(image_data), nickname, mime_type)
-                )
-            
-            conn.commit()
-            logging.info(f"Image with nickname '{nickname}' uploaded successfully.")
-            return f"<div class='success-message'>Image '{nickname}' uploaded successfully! (MIME: {mime_type})</div>"
+            message = {
+                "request_id": request_id,
+                "nickname": nickname,
+                "image_data": base64.b64encode(image_data).decode('utf-8'),
+                "mime_type": mime_type
+            }
+
+            send_message(IMAGE_PROCESSING_EXCHANGE, IMAGE_PROCESSING_QUEUE, json.dumps(message))
+
+            return f"<div class='success-message'>Request {request_id} received. Image '{nickname}' is being processed.</div>", 202
         except Exception as e:
             logging.error(f"Error during image upload: {e}")
             return f"<div class='error-message'>Image upload failed: {str(e)}</div>", 500
-        finally:
-            if 'cur' in locals() and cur:
-                cur.close()
-            if 'conn' in locals() and conn:
-                conn.close()
 
     return render_template("index.html")
 

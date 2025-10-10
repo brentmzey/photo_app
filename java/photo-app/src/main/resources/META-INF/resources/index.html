@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image Upload</title>
+    <script src="https://unpkg.com/htmx.org@1.9.4"></script>
+    <style>
+        .success-message {
+            color: green;
+            font-weight: bold;
+        }
+        .error-message {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Upload Image</h1>
+    <form method="POST" enctype="multipart/form-data" hx-post="/" hx-target="#response">
+        <input type="text" name="nickname" placeholder="Nickname" required><br>
+        <input type="file" name="image_data" accept="image/*" required><br>
+        <button type="submit">Upload</button>
+    </form>
+    <div id="response"></div>
+
+    <h2 id="db-type"></h2>
+
+    <h1>View Image</h1>
+    <input type="text" id="image-nickname" placeholder="Enter nickname">
+    <button onclick="fetchImage()">Fetch Image</button>
+    <div id="image-container"></div>
+
+    <script>
+        // Fetch DB type from backend and display it
+        fetch('/dbtype')
+            .then(response => {
+                if (!response.ok) throw new Error(`Failed to load database type: ${response.statusText}`);
+                return response.json();
+            })
+            .then(data => {
+                document.getElementById("db-type").innerText = "Database: " + data.db_type.toUpperCase();
+            })
+            .catch(error => {
+                document.getElementById("db-type").innerText = "Database: Unknown";
+                console.error('Error fetching database type:', error);
+            });
+
+        function fetchImage() {
+            var nickname = document.getElementById("image-nickname").value;
+            fetch('/images/' + nickname)
+                .then(response => {
+                    if (!response.ok) throw new Error(`Error fetching image: ${response.statusText}`);
+                    return response.json();
+                })
+                .then(images => {
+                    var imageContainer = document.getElementById("image-container");
+                    imageContainer.innerHTML = ""; // Clear previous images
+
+                    if (images.length > 0) {
+                        var image = images[0]; // Only display the first image
+                        var mimeType = image.mime_type;
+                        var base64Data = image.image_data;
+                        var img = document.createElement('img');
+                        img.src = `data:${mimeType};base64,${base64Data}`;
+                        img.style.maxWidth = "300px";
+                        imageContainer.appendChild(img);
+                    } else {
+                        imageContainer.innerHTML = "No image found";
+                    }
+                })
+                .catch(error => {
+                    document.getElementById("image-container").innerHTML = "Error fetching image";
+                    console.error('Error:', error);
+                });
+        }
+    </script>
+</body>
+</html>
